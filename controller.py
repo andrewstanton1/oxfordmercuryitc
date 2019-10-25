@@ -1374,7 +1374,7 @@ class sweepTableUIWindow(QWidget):
 		self.parent.control_display.startThread()
 
 
-	#	TODO
+	#	TODO matt is cool 
 	'''
 	implement PID table and sweep table
 	update control textboxes when new value is entered
