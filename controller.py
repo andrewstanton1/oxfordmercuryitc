@@ -9,9 +9,9 @@ from PyQt5.QtCore import QObject, QTimer, QThread, pyqtSignal, pyqtSlot, Qt, QEv
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QStackedWidget, \
 							QGridLayout, QLabel, QLineEdit, QComboBox, QStatusBar, \
 							QPushButton, QProgressBar, QAction, QMenu, QCheckBox, \
-							QVBoxLayout, QHBoxLayout
+							QVBoxLayout, QHBoxLayout, QScrollArea
 
-import devices
+import constants
 
 class MainWindow(QMainWindow):
 	def __init__(self, parent=None):
@@ -26,9 +26,9 @@ class MainWindow(QMainWindow):
 		self.tc = None
 
 		# devices
-		self.devices = devices.devices
-		self.sensor_name = devices.sensor_name
-		self.commands = devices.commands
+		self.devices = constants.DEVICES
+		self.sensor_name = constants.SENSORS
+		self.commands = constants.COMMANDS
 
 		self.valid_connection = False
 
@@ -36,11 +36,13 @@ class MainWindow(QMainWindow):
 		self.control_display = controlUIWindow(self)
 		self.heater_display	 = heaterUIWindow(self)
 		self.sweep_display = sweepTableUIWindow(self)
+		self.pid_display = pidTableUIWindow(self)
 
 		self.central_widget.addWidget(self.sensor_display)
 		self.central_widget.addWidget(self.control_display)
 		self.central_widget.addWidget(self.heater_display)
 		self.central_widget.addWidget(self.sweep_display)
+		self.central_widget.addWidget(self.pid_display)
 		self.central_widget.setCurrentWidget(self.sensor_display)
 
 		self.sensor_display.control_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.control_display))
@@ -48,11 +50,15 @@ class MainWindow(QMainWindow):
 
 		self.control_display.home_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.sensor_display))
 		self.control_display.sweeptable_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.sweep_display))
+		self.control_display.pidtable_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.pid_display))
 
 		self.heater_display.home_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.sensor_display))
 		self.heater_display.control_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.control_display))
 
 		self.sweep_display.control_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.control_display))
+
+		self.pid_display.control_clicked.connect(lambda: self.central_widget.setCurrentWidget(self.control_display))
+
 	
 		self.createWriterThread()
 		self.selectUSB()
@@ -86,7 +92,7 @@ class MainWindow(QMainWindow):
 
 		try:
 			self.serial_ports = sorted(self.rm.list_resources())
-			self.tc = itc.temperatureController(self.com_port)
+			self.tc = itc.TemperatureController(self.com_port)
 			self.valid_connection = True
 			self.createWriterThread()
 			self.central_widget.currentWidget().startThread()
@@ -109,7 +115,7 @@ class MainWindow(QMainWindow):
 
 	def connectWriterThread(self):
 		self.write.moveToThread(self.writer_thread)
-		# self.writer_thread.started.connect(self.write.getMaxVoltage)
+		# self.writer_thread.started.connect(self.write.get_max_voltage)
 		self.writer_thread.started.connect(self.write.tryWrite)
 		self.write.write.connect(self.displayWriteReadMessage)
 		self.writer_thread.start()
@@ -191,7 +197,7 @@ class sensorUIWindow(QWidget):
 			if col == 3:
 				col = 0
 				row = 1
-			self.mainDisplay.addWidget(self.panel_widgets[display].getDeviceContainer(), row, col)
+			self.mainDisplay.addWidget(self.panel_widgets[display].get_deviceContainer(), row, col)
 			col += 1
 
 
@@ -336,7 +342,7 @@ class createDisplayObject(QMainWindow):
 			self.meter_layout.addWidget(device_meter)
 			self.device_layout.addLayout(self.meter_layout)
 
-	def getDeviceContainer(self):
+	def get_deviceContainer(self):
 		return self.device_box
 
 class hoverPushButton(QObject):
@@ -430,10 +436,19 @@ class focusLineEdit(QLineEdit):
 		self.textbox.setFixedSize(100, 75)
 		self.textbox.setValidator((QDoubleValidator()))
 
+	def createPIDFocusLineEdit(self):
+		self.textbox = QLineEdit()
+		self.textbox.setStyleSheet(self.CSS)
+		self.textbox.setFixedSize(150, 75)
+		self.textbox.setValidator((QDoubleValidator()))
+
 	def getFocusLineEdit(self):
 		return self.textbox
 
 	def getSmallFocusLineEdit(self):
+		return self.textbox
+
+	def getPIDFocusLineEdit(self):
 		return self.textbox
 
 	def disabled(self):
@@ -482,20 +497,20 @@ class panelThread(QObject):
 			if self.connect:
 				for device in self.devices:
 					if self.devices[device][1] == 'primary':
-						self.signal.emit(self.tc.getSignal(device, self.measure[device]))
+						self.signal.emit(self.tc.get_signal(device, self.measure[device]))
 						self.tc.close()
 						self.tc.open()
 						if meter_refresh == 1 and self.devices[device][0].split('.')[1] == 'V':
-							self.signal.emit(self.tc.getHeaterPowerRatio(device))
+							self.signal.emit(self.tc.get_heat_power_ratio(device))
 							self.tc.close()
 							self.tc.open()
 					else:
 						if secondary_refresh == 0:
-							self.signal.emit(self.tc.getSignal(device, self.measure[device]))
+							self.signal.emit(self.tc.get_signal(device, self.measure[device]))
 							self.tc.close()
 							self.tc.open()
 						elif meter_refresh == 1 and self.devices[device][0].split('.')[1] == 'V':
-							self.signal.emit(self.tc.getHeaterPowerRatio(device))
+							self.signal.emit(self.tc.get_heat_power_ratio(device))
 							self.tc.close()
 							self.tc.open()
 			else:
@@ -504,10 +519,10 @@ class panelThread(QObject):
 					self.signal.emit([device, 0.0])
 				break
 			if self.devices["DB4"][1] == "primary":
-				gas_set +=1 
-				if gas_set == 10:
+				self.gas_set +=1 
+				if self.gas_set == 10:
 					self.devices["DB4"][1] = "secondary"
-					gas_set = 0
+					self.gas_set = 0
 
 			secondary_refresh += 1
 			meter_refresh += 1
@@ -550,30 +565,32 @@ class heaterThread(QObject):
 	def monitorValues(self):
 		if self.connect and self.devices:
 			for device in self.devices:
-				self.volt_value.emit(self.tc.getMaxVoltage(device))
+				self.volt_value.emit(self.tc.get_max_voltage(device))
 				self.openAndclose()
-				self.res_value.emit(self.tc.getResistance(device))
+				self.res_value.emit(self.tc.get_resistance(device))
 				self.openAndclose()
 
 
 		while self.run:
 			if self.connect:
 				for device in self.devices:
-					self.signal.emit(self.tc.getHeaterPowerRatio(device))
+					self.signal.emit(self.tc.get_heat_power_ratio(device))
 					self.tc.close()
-					time.sleep(1)
+					# time.sleep(2)
 					self.tc.open()
 			else:
 				for device in self.devices:
 					self.signal.emit([device, 0.0])
 				break
-			time.sleep(3)
+			if self.run:
+				time.sleep(1)
 		self.ended.emit()
 
 	def openAndclose(self):
 		if self.connect:
 			self.tc.close()
 			self.tc.open()
+
 
 class controlThread(QObject):
 	value = pyqtSignal(list)
@@ -599,9 +616,9 @@ class controlThread(QObject):
 	def resume(self):
 		self.run = True
 
-	def getSetPointUpdate(self, target):
+	def get_setpointUpdate(self, target):
 		while True:
-			self.current_set_point = self.tc.getSetPoint(self.device)
+			self.current_set_point = self.tc.get_setpoint(self.device)
 			if self.current_set_point == target:
 				break
 			time.sleep(1)
@@ -609,12 +626,12 @@ class controlThread(QObject):
 	@pyqtSlot()
 	def getValues(self):
 		if self.connect and self.run:
-			self.askValues(self.tc.getHeater)
-			self.askValues(self.tc.getFlow)
-			self.askValues(self.tc.getSetPoint)
-			self.askValues(self.tc.getP)
-			self.askValues(self.tc.getI)
-			self.askValues(self.tc.getD)
+			self.askValues(self.tc.get_heater)
+			self.askValues(self.tc.get_flow)
+			self.askValues(self.tc.get_setpoint)
+			self.askValues(self.tc.get_p)
+			self.askValues(self.tc.get_i)
+			self.askValues(self.tc.get_d)
 
 		self.pause()
 		self.ended.emit()
@@ -655,21 +672,21 @@ class writerThread(QObject):
 	def itc(self, tc):
 		self.tc = tc
 
-	def setHeater(self, value, device=None):
+	def set_heater(self, value, device=None):
 		if value < 0.0 or value > 100.0:
 			self.write.emit("heater percentage must be 0-100")
 		else:
 			if self.connect and device:
-				self.tryWrite(self.tc.setHeater, device, "heater %", value)
+				self.tryWrite(self.tc.set_heater, device, "heater %", value)
 			else:
 				self.write.emit("ITC not connected")
 
-	def setFlow(self, value, device=None):
+	def set_flow(self, value, device=None):
 		if value < 0.0 or value > 100.0:
 			self.write.emit("flow percentage must be 0-100")
 		else:
 			if self.connect and device:
-				self.tryWrite(self.tc.setFlow, device, "flow %", value)
+				self.tryWrite(self.tc.set_flow, device, "flow %", value)
 			else:
 				self.write.emit("ITC not connected")
 
@@ -682,69 +699,81 @@ class writerThread(QObject):
 			else:
 				self.write.emit("ITC not connected")
 
-	def setP(self, value, device=None):
+	def set_p(self, value, device=None):
 		if self.connect and device:
-			self.tryWrite(self.tc.setP, device, "P value", value)
+			self.tryWrite(self.tc.set_p, device, "P value", value)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setI(self, value, device=None):
+	def set_i(self, value, device=None):
 		if self.connect and device:
-			self.tryWrite(self.tc.setI, device, "I value", value)
+			self.tryWrite(self.tc.set_i, device, "I value", value)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setD(self, value, device=None):
+	def set_d(self, value, device=None):
 		if self.connect and device:
-			self.tryWrite(self.tc.setD, device, "D value", value)
+			self.tryWrite(self.tc.set_d, device, "D value", value)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setHeaterSetting(self, device=None):
+	def set_heaterSetting(self, device=None):
 		if self.connect and device:
 			pass
 		else:
 			self.write.emit("ITC not connected")
 
-	def setFlowSetting(self, setting, device=None):
+	def set_flow_setting(self, setting, device=None):
 		if self.connect and device:
 			if setting == "OFF":
 				text = "flow control disabled"
 			else:
 				text = "flow control enabled"
-			self.tryWrite(self.tc.setFlowSetting, device, text, setting)
+			self.tryWrite(self.tc.set_flow_setting, device, text, setting)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setSetPointSetting(self, setting, device=None):
+	def set_setpoint_setting(self, setting, device=None):
 		if self.connect and device:
 			if setting == "OFF":
 				text = "set point control disabled"
 			else:
 				text = "set point control enabled"
-			self.tryWrite(self.tc.setSetPointSetting, device, text, setting)
+			self.tryWrite(self.tc.set_setpoint_setting, device, text, setting)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setPIDSetting(self, setting, device=None):
+	def set_pid_setting(self, setting, device=None):
 		if self.connect and device:
 			if setting == "OFF":
 				text = "PID control disabled"
 			else:
 				text = "PID control enabled"
-			self.tryWrite(self.tc.setPIDSetting, device, text, setting)
+			self.tryWrite(self.tc.set_pid_setting, device, text, setting)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setMaxVoltage(self, value, device=None):
+	def set_max_voltage(self, value, device=None):
 		if self.connect and device:
-			self.tryWrite(self.tc.setMaxVoltage, device, "max voltage", value)
+			self.tryWrite(self.tc.set_max_voltage, device, "max voltage", value)
 		else:
 			self.write.emit("ITC not connected")
 
-	def setResistance(self, value, device=None):
+	def set_resistance(self, value, device=None):
 		if self.connect and device:
-			self.tryWrite(self.tc.setResistance, device, "resistance", value)
+			self.tryWrite(self.tc.set_resistance, device, "resistance", value)
+		else:
+			self.write.emit("ITC not connected")
+
+	def set_sweep_table(self, table, device=None):
+		if self.connect and device:
+			self.tryWrite(self.tc.set_sweep_table, device, "sweep table", table)
+		else:
+			self.write.emit("ITC not connected")
+
+	def set_pid_table(self, table, device=None):
+		if self.connect and device:
+			self.tryWrite(self.tc.set_pid_table, device, "pid table", table)
 		else:
 			self.write.emit("ITC not connected")
 
@@ -777,12 +806,13 @@ class controlUIWindow(QWidget):
 
 	home_clicked = pyqtSignal()
 	sweeptable_clicked = pyqtSignal()
+	pidtable_clicked = pyqtSignal()
 
 	def __init__(self, parent=None):
 		super(controlUIWindow, self).__init__(parent=parent)
 		self.parent = parent
-		self.temp_heater_pair = devices.temp_heater_pair
-		self.controls = devices.controls
+		self.temp_heater_pair = constants.TEMP_HEATERS
+		self.controls = constants.CONTROLS
 
 		# layouts
 		self.controlLoopUI()
@@ -876,9 +906,9 @@ class controlUIWindow(QWidget):
 		self.heat_row.addWidget(self.sensor_labels["P"])
 		self.createInputBox("P")
 		self.heat_row.addWidget(self.sensor_textbox["P"].getFocusLineEdit())
-		self.sensor_textbox["Heat"].getFocusLineEdit().returnPressed.connect(lambda: self.setHeater(self.primary_device, self.sensor_textbox["Heat"].getFocusLineEdit().text()))
-		self.sensor_setting["Heat"].clicked.connect(lambda: self.setHeaterSetting(self.primary_device, self.sensor_setting["Heat"].text(), "Heat"))
-		self.sensor_textbox["P"].getFocusLineEdit().returnPressed.connect(lambda: self.setP(self.primary_device, self.sensor_textbox["P"].getFocusLineEdit().text()))
+		self.sensor_textbox["Heat"].getFocusLineEdit().returnPressed.connect(lambda: self.set_heater(self.primary_device, self.sensor_textbox["Heat"].getFocusLineEdit().text()))
+		self.sensor_setting["Heat"].clicked.connect(lambda: self.set_heaterSetting(self.primary_device, self.sensor_setting["Heat"].text(), "Heat"))
+		self.sensor_textbox["P"].getFocusLineEdit().returnPressed.connect(lambda: self.set_p(self.primary_device, self.sensor_textbox["P"].getFocusLineEdit().text()))
 
 
 	def flowConfig(self):
@@ -889,9 +919,9 @@ class controlUIWindow(QWidget):
 		self.flow_row.addWidget(self.sensor_labels["I"])
 		self.createInputBox("I")
 		self.flow_row.addWidget(self.sensor_textbox["I"].getFocusLineEdit())
-		self.sensor_textbox["Flow"].getFocusLineEdit().returnPressed.connect(lambda: self.setFlow(self.primary_device, self.sensor_textbox["Flow"].getFocusLineEdit().text()))
-		self.sensor_setting["Flow"].clicked.connect(lambda: self.setFlowSetting(self.primary_device, self.sensor_setting["Flow"].text(), "Flow"))
-		self.sensor_textbox["I"].getFocusLineEdit().returnPressed.connect(lambda: self.setI(self.primary_device, self.sensor_textbox["I"].getFocusLineEdit().text()))
+		self.sensor_textbox["Flow"].getFocusLineEdit().returnPressed.connect(lambda: self.set_flow(self.primary_device, self.sensor_textbox["Flow"].getFocusLineEdit().text()))
+		self.sensor_setting["Flow"].clicked.connect(lambda: self.set_flow_setting(self.primary_device, self.sensor_setting["Flow"].text(), "Flow"))
+		self.sensor_textbox["I"].getFocusLineEdit().returnPressed.connect(lambda: self.set_i(self.primary_device, self.sensor_textbox["I"].getFocusLineEdit().text()))
 
 
 	def setpointConfig(self):
@@ -905,8 +935,8 @@ class controlUIWindow(QWidget):
 		self.sensor_textbox["Set Point"].getFocusLineEdit().returnPressed.connect(lambda: self.setSetPoint(self.primary_device, self.sensor_textbox["Set Point"].getFocusLineEdit().text()))
 		self.sensor_textbox["Set Point"].getFocusLineEdit().mousePressEvent = lambda _ : self.sensor_textbox["Set Point"].getFocusLineEdit().selectAll()
 
-		self.sensor_setting["Set Point"].clicked.connect(lambda: self.setSetPointSetting(self.primary_device, self.sensor_setting["Set Point"].text(), "Set Point"))
-		self.sensor_textbox["D"].getFocusLineEdit().returnPressed.connect(lambda: self.setD(self.primary_device, self.sensor_textbox["D"].getFocusLineEdit().text()))
+		self.sensor_setting["Set Point"].clicked.connect(lambda: self.set_setpoint_setting(self.primary_device, self.sensor_setting["Set Point"].text(), "Set Point"))
+		self.sensor_textbox["D"].getFocusLineEdit().returnPressed.connect(lambda: self.set_d(self.primary_device, self.sensor_textbox["D"].getFocusLineEdit().text()))
 
 
 	def pidConfig(self):
@@ -914,32 +944,32 @@ class controlUIWindow(QWidget):
 		self.sensor_row.addWidget(self.sensor_labels['PID (H)'])
 		self.createPushButton('PID')
 		self.sensor_row.addWidget(self.sensor_setting['PID'])
-		self.sensor_setting["PID"].clicked.connect(lambda: self.setPIDSetting(self.primary_device, self.sensor_setting["PID"].text(), "PID"))
+		self.sensor_setting["PID"].clicked.connect(lambda: self.set_pid_setting(self.primary_device, self.sensor_setting["PID"].text(), "PID"))
 		self.createPIDLabels('P')
 		self.createPIDLabels('I')
 		self.createPIDLabels('D')
 
-	def setHeater(self, device, text):
-		self.parent.write.setHeater(float(text), device)
+	def set_heater(self, device, text):
+		self.parent.write.set_heater(float(text), device)
 
-	def setFlow(self, device, text):
-		self.parent.write.setFlow(float(text), device)
+	def set_flow(self, device, text):
+		self.parent.write.set_flow(float(text), device)
 		self.parent.sensor_name["DB4"][1] = "primary"
 
 	def setSetPoint(self, device, text):
 		self.parent.write.setSetPoint(float(text), device)
 		# self.sensor_textbox["Set Point"].getFocusLineEdit().setText(self.sensor_textbox["Set Point"].getFocusLineEdit().text())
 
-	def setP(self, device, value):
-		self.parent.write.setP(value, device)
+	def set_p(self, device, value):
+		self.parent.write.set_p(value, device)
 
-	def setI(self, device, value):
-		self.parent.write.setI(value, device)
+	def set_i(self, device, value):
+		self.parent.write.set_i(value, device)
 
-	def setD(self, device, value):
-		self.parent.write.setD(value, device)
+	def set_d(self, device, value):
+		self.parent.write.set_d(value, device)
 
-	def setHeaterSetting(self, device, setting, name):
+	def set_heaterSetting(self, device, setting, name):
 		if setting == "Manual":
 			self.sensor_textbox[name].enabled()
 			self.sensor_setting["Set Point"].setDisabled(True)
@@ -948,7 +978,7 @@ class controlUIWindow(QWidget):
 															margin 1px; border: 2px solid rgb(0, 122, 122); \
 														 	border-radius: 5px; ')
 			self.sensor_textbox["Set Point"].enabled()
-			self.parent.write.setSetPointSetting("OFF", device)
+			self.parent.write.set_setpoint_setting("OFF", device)
 		else:
 			self.sensor_textbox[name].disabled()
 			self.sensor_setting["Set Point"].setDisabled(False)
@@ -956,37 +986,37 @@ class controlUIWindow(QWidget):
 															margin 1px; border: 2px solid rgb(0, 122, 122); \
 														 	border-radius: 5px; ')
 
-	def setFlowSetting(self, device, setting, name):
+	def set_flow_setting(self, device, setting, name):
 		if setting == "Manual":
 			self.sensor_textbox[name].enabled()
-			self.parent.write.setFlowSetting("OFF", device)
+			self.parent.write.set_flow_setting("OFF", device)
 		else:
 			self.sensor_textbox[name].disabled()
-			self.parent.write.setFlowSetting("ON", device)
+			self.parent.write.set_flow_setting("ON", device)
 
-	def setSetPointSetting(self, device, setting, name):
+	def set_setpoint_setting(self, device, setting, name):
 		if setting == "Fixed":
 			self.sensor_textbox[name].enabled()
-			self.parent.write.setSetPointSetting("OFF", device)
+			self.parent.write.set_setpoint_setting("OFF", device)
 		else:
 			self.sensor_textbox[name].disabled()
-			self.parent.write.setSetPointSetting("ON", device)
+			self.parent.write.set_setpoint_setting("ON", device)
 			self.startThread()
 
 
-	def setPIDSetting(self, device, setting, name):
+	def set_pid_setting(self, device, setting, name):
 		if setting == "Manual":
 			self.sensor_textbox["P"].enabled()
 			self.sensor_textbox["I"].enabled()
 			self.sensor_textbox["D"].enabled()
 			self.options_buttons["PID table"].enabled()
-			self.parent.write.setPIDSetting("OFF", device)
+			self.parent.write.set_pid_setting("OFF", device)
 		else:
 			self.sensor_textbox["P"].disabled()
 			self.sensor_textbox["I"].disabled()
 			self.sensor_textbox["D"].disabled()
 			self.options_buttons["PID table"].disabled()			
-			self.parent.write.setPIDSetting("ON", device)
+			self.parent.write.set_pid_setting("ON", device)
 
 	def createPIDLabels(self, text):
 		self.sensor_labels[text] = QLabel(text)
@@ -1059,6 +1089,9 @@ class controlUIWindow(QWidget):
 		self.options_buttons["Home"].getHoverButton().clicked.connect(self.home_clicked.emit)
 		self.options_buttons["Home"].getHoverButton().clicked.connect(self.resumeHomeDisplay)
 		self.options_buttons["Sweep table"].getHoverButton().clicked.connect(self.sweeptable_clicked.emit)
+		self.options_buttons["Sweep table"].getHoverButton().clicked.connect(lambda: self.parent.sweep_display.refreshSweepTable())
+		self.options_buttons["PID table"].getHoverButton().clicked.connect(self.pidtable_clicked.emit)
+		self.options_buttons["PID table"].getHoverButton().clicked.connect(lambda: self.parent.pid_display.refreshPIDTable())
 
 	def resumeHomeDisplay(self):
 		self.parent.sensor_display.startThread()
@@ -1096,8 +1129,8 @@ class heaterUIWindow(QWidget):
 	def __init__(self, parent=None):
 		super(heaterUIWindow, self).__init__(parent=parent)
 		self.parent = parent
-		self.devices = devices.devices
-		self.sensor_name = devices.sensor_name
+		self.devices = constants.DEVICES
+		self.sensor_name = constants.SENSORS
 		# layouts
 		self.heaterOptionUI()
 
@@ -1174,44 +1207,42 @@ class heaterUIWindow(QWidget):
 
 	def createDeviceInputs(self):
 		self.device_inputs = {}
-		for device, names in devices.sensor_name.items():
-			if names[0].split('.')[1] == 'V':
-				self.device_input = focusLineEdit(self.devices[device])
-				self.device_input.createFocusLineEdit()
-				self.device_inputs[self.devices[device]] = self.device_input.getFocusLineEdit()
-				self.device_inputs[self.devices[device]].setText(self.sensor_name[device][0].split(".")[0])
-				self.name_col.addWidget(self.device_inputs[self.devices[device]])
+		for device in self.heater_names:
+			self.device_inputs[device] = focusLineEdit(self.devices[device])
+			self.device_inputs[device].createFocusLineEdit()
+			self.device_inputs[device].getFocusLineEdit().setText(self.sensor_name[device][0].split(".")[0])
+			self.name_col.addWidget(self.device_inputs[device].getFocusLineEdit())
 
 	def createMaxVoltInputs(self):
 		self.voltlim_inputs = {}
 		for device in self.device_inputs:
-				self.voltlim_input = focusLineEdit(device)
-				self.voltlim_input.createSmallFocusLineEdit()
-				self.voltlim_inputs[device] = self.voltlim_input.getSmallFocusLineEdit()
-				self.voltlim_inputs[device].returnPressed.connect(lambda: self.updateMaxVoltage(device, self.voltlim_inputs[device].text()))
-				self.volt_col.addWidget(self.voltlim_inputs[device])
+			self.voltlim_inputs[device] = focusLineEdit(device)
+			self.voltlim_inputs[device].createSmallFocusLineEdit()
+			self.volt_col.addWidget(self.voltlim_inputs[device].getSmallFocusLineEdit())
+		self.voltlim_inputs["DB1"].getSmallFocusLineEdit().returnPressed.connect(lambda: self.updateMaxVoltage("DB1", self.voltlim_inputs["DB1"].getSmallFocusLineEdit().text()))
+		self.voltlim_inputs["MB0"].getSmallFocusLineEdit().returnPressed.connect(lambda: self.updateMaxVoltage("MB0", self.voltlim_inputs["MB0"].getSmallFocusLineEdit().text()))
 
 	def createResInputs(self):
 		self.res_inputs = {}
 		for device in self.device_inputs:
-				self.res_input = focusLineEdit(device)
-				self.res_input.createSmallFocusLineEdit()
-				self.res_inputs[device] = self.res_input.getSmallFocusLineEdit()
-				self.res_inputs[device].returnPressed.connect(lambda: self.updateResistance(device, self.voltlim_inputs[device].text()))
-				self.res_col.addWidget(self.res_inputs[device])
+			self.res_inputs[device] = focusLineEdit(device)
+			self.res_inputs[device].createSmallFocusLineEdit()
+			self.res_col.addWidget(self.res_inputs[device].getSmallFocusLineEdit())
+		self.res_inputs["DB1"].getSmallFocusLineEdit().returnPressed.connect(lambda: self.updateResistance("DB1", self.res_inputs["DB1"].getSmallFocusLineEdit().text()))
+		self.res_inputs["MB0"].getSmallFocusLineEdit().returnPressed.connect(lambda: self.updateResistance("MB0", self.res_inputs["MB0"].getSmallFocusLineEdit().text()))
 
 
 	def updateMaxVoltage(self, device, value):
-		self.parent.write.setMaxVoltage(value, device)
+		self.parent.write.set_max_voltage(value, self.devices[device])
 
 	def updateResistance(self, device, value):
-		self.parent.write.setResistance(value, device)
+		self.parent.write.set_resistance(value, self.devices[device])
 
 	def createMeterBar(self):
 		self.meter_reading = {}
 		CSS_1 = "QProgressBar {color : white; font : bold; text-align : center; border-radius : 5px; \
 							   border: 2px solid rgb(0, 122, 122); }"
-		for device, names in devices.sensor_name.items():
+		for device, names in constants.SENSORS.items():
 			if names[0].split('.')[1] == 'V':
 				self.meter_reading[device] = QProgressBar(self)
 				self.meter_reading[device].setFixedSize(200, 25)
@@ -1232,11 +1263,11 @@ class heaterUIWindow(QWidget):
 
 	@pyqtSlot(list)
 	def updateVoltReading(self, reading):
-		self.voltlim_inputs[reading[0]].setText(reading[1])
+		self.voltlim_inputs[reading[0]].getSmallFocusLineEdit().setText(reading[1])
 
 	@pyqtSlot(list)
 	def updateResReading(self, reading):
-		self.res_inputs[reading[0]].setText(reading[1])
+		self.res_inputs[reading[0]].getSmallFocusLineEdit().setText(reading[1])
 
 	def optionButtons(self):
 		self.createThreading()
@@ -1296,8 +1327,9 @@ class sweepTableUIWindow(QWidget):
 	def __init__(self, parent=None):
 		super(sweepTableUIWindow, self).__init__(parent=parent)
 		self.parent = parent
-		# self.devices = devices.devices
-		# self.sensor_name = devices.sensor_name
+		self.SWEEP_ENTRIES = 3	
+		# self.devices = constants.DEVICES
+		# self.sensor_name = constants.SENSORS
 		# layouts
 		self.sweepTableUI()
 
@@ -1311,6 +1343,7 @@ class sweepTableUIWindow(QWidget):
 
 		self.background_layout.addLayout(self.title_layout)
 		self.background_layout.addLayout(self.input_layout)
+		self.background_layout.addStretch(2)
 		self.background_layout.addLayout(self.options_layout)
 		
 		self.setLayout(self.background_layout)
@@ -1328,36 +1361,51 @@ class sweepTableUIWindow(QWidget):
 		for title in self.sweep_titles:
 			self.sweep_titles[title].setStyleSheet('color: white ; font: 12pt; \
 													text-decoration: underline; \
-													border: 0px ;')
+													border: 0px; text-align: center')
 			self.title_layout.addWidget(self.sweep_titles[title])
-			self.title_layout.addStretch(1)
+			# self.title_layout.addStretch(1)
 
 	def createInputs(self):
-		temp_layout = [QVBoxLayout(), QVBoxLayout(), QVBoxLayout()] 
+		sweep_layout = [QVBoxLayout(), QVBoxLayout(), QVBoxLayout()] 
 
-		for layout in temp_layout:
+		for layout in sweep_layout:
 			self.input_layout.addLayout(layout)
-		temp_layout[0].addWidget(self.sweepLabels("FinalT (K)"))
-		temp_layout[1].addWidget(self.sweepLabels("Time to final T (mins)"))
-		temp_layout[2].addWidget(self.sweepLabels("Hold at final T (mins)"))
 
-		self.tempT = focusLineEdit()
-		self.tempT.createFocusLineEdit()
-		self.timeT = focusLineEdit()
-		self.timeT.createFocusLineEdit()
-		self.finalT = focusLineEdit()
-		self.finalT.createFocusLineEdit()
+		sweep_layout[0].addWidget(self.sweepLabels("FinalT\n(K)"))
+		sweep_layout[1].addWidget(self.sweepLabels("Time to final T\n(mins)"))
+		sweep_layout[2].addWidget(self.sweepLabels("Hold at final T\n(mins)"))
 
 
-		temp_layout[0].addWidget(self.tempT.getFocusLineEdit())
-		temp_layout[1].addWidget(self.timeT.getFocusLineEdit())
-		temp_layout[2].addWidget(self.finalT.getFocusLineEdit())
+		self.sweep_values = []
+		for i in range(self.SWEEP_ENTRIES):
+			self.sweep_values.append(focusLineEdit())
+			self.sweep_values[i].createFocusLineEdit()
+			self.sweep_values[i].getFocusLineEdit().setAlignment(Qt.AlignCenter)
+			self.sweep_values[i].getFocusLineEdit().returnPressed.connect(\
+								 lambda: self.set_sweep_table(\
+								 		 self.sweep_values[i].getFocusLineEdit().text(), \
+										 self.parent.control_display.primary_device))
+			sweep_layout[i].addWidget(self.sweep_values[i].getFocusLineEdit())
+
+		# self.timeT = focusLineEdit()
+		# self.timeT.createFocusLineEdit()
+		# self.finalT = focusLineEdit()
+		# self.finalT.createFocusLineEdit()
+
+
+
+		# temp_layout[0].addWidget(self.tempT.getFocusLineEdit())
+		# temp_layout[1].addWidget(self.timeT.getFocusLineEdit())
+		# temp_layout[2].addWidget(self.finalT.getFocusLineEdit())
 
 	def sweepLabels(self, label):
 		self.label = QLabel(label)
 		self.label.setStyleSheet('color: white; background-color: blue; font: 14pt; \
 								  margin 1px; border: 2px solid rgb(0, 122, 122); \
-								  border-radius: 5px; ')
+								  border-radius: 5px; text-align: center; ')
+		self.label.setAlignment(Qt.AlignCenter)
+
+		self.label.setFixedSize(250, 80)
 		return self.label
 
 	def optionButtons(self):
@@ -1369,6 +1417,146 @@ class sweepTableUIWindow(QWidget):
 
 		self.option_button.getHoverButton().clicked.connect(self.control_clicked.emit)
 		self.option_button.getHoverButton().clicked.connect(self.resumeControlDisplay)
+
+	def refreshSweepTable(self):
+		if self.parent.valid_connection:
+			self.sweep_table = self.parent.tc.get_sweep_table(self.parent.control_display.primary_device)
+			for item in self.sweep_table:
+				self.sweep_values.getFocusLineEdit().setText(str(item))
+
+	def set_sweep_table(self, value, device):
+		self.parent.write.set_sweep_table(value, device)
+
+	def resumeControlDisplay(self):
+		self.parent.control_display.startThread()
+
+
+class pidTableUIWindow(QWidget):
+
+	control_clicked = pyqtSignal()
+
+	def __init__(self, parent=None):
+		super(pidTableUIWindow, self).__init__(parent=parent)
+		self.parent = parent
+		# self.devices = constants.DEVICES
+		# self.sensor_name = constants.SENSORS
+		# layouts
+		self.pidTableUI()
+
+
+	def pidTableUI(self):
+
+		self.background_layout = QVBoxLayout()
+		self.title_layout = QHBoxLayout()
+		self.pid_input_layout = QGridLayout()
+		self.options_layout = QHBoxLayout()
+
+		self.background_layout.addLayout(self.title_layout)
+
+		self.scroll_contents = QWidget()
+		self.scroll = QScrollArea(self)
+		self.scroll.setWidgetResizable(True)
+
+		self.background_layout.addWidget(self.scroll)
+
+
+		# self.background_layout.addStretch(2)
+		self.background_layout.addLayout(self.options_layout)
+		
+		self.setLayout(self.background_layout)
+
+		self.createpidTitles()
+		self.createInputs()
+		self.optionButtons()
+
+
+	def createpidTitles(self):
+		self.pid_titles = {
+							'Sweep Table' : QLabel('Sweep Table'),
+							'VTI_a Mercury.pid' : QLabel('VTI') }
+
+		for title in self.pid_titles:
+			self.pid_titles[title].setStyleSheet('color: white ; font: 12pt; \
+													text-decoration: underline; \
+													border: 0px; text-align: center')
+			self.title_layout.addWidget(self.pid_titles[title])
+
+	def createInputs(self):
+
+		self.pid_input_layout.addWidget(self.pidLabels("Temperature(K)"), 0, 0)
+		self.pid_input_layout.addWidget(self.pidLabels("To(K)"), 0, 1)
+		self.pid_input_layout.addWidget(self.pidLabels("P"), 0, 2)
+		self.pid_input_layout.addWidget(self.pidLabels("I (min)"), 0, 3)
+		self.pid_input_layout.addWidget(self.pidLabels("D (min)"), 0, 4)
+
+		# self.tempT = focusLineEdit()
+		# self.tempT.createFocusLineEdit()
+		# # self.tempT.getFocusLineEdit().resize(130, 75)
+		# self.tempT.getFocusLineEdit().setAlignment(Qt.AlignCenter)
+
+		# self.timeT = focusLineEdit()
+		# self.timeT.createFocusLineEdit()
+		# self.finalT = focusLineEdit()
+		# self.finalT.createFocusLineEdit()
+
+
+		for i in range(1, 10):
+			for j in range(5):
+				temp = focusLineEdit()
+				if j == 0:
+					temp.createFocusLineEdit()
+					temp.getFocusLineEdit().returnPressed.connect(\
+								 lambda: self.set_pid_table(temp.getFocusLineEdit().text(), \
+										 self.parent.control_display.primary_device))
+					self.pid_input_layout.addWidget(temp.getFocusLineEdit(), i, j)
+
+				else:
+					temp.createPIDFocusLineEdit()
+					temp.getFocusLineEdit().returnPressed.connect(\
+								 lambda: self.set_pid_table(temp.getPIDFocusLineEdit().text(), \
+										 self.parent.control_display.primary_device))
+					self.pid_input_layout.addWidget(temp.getPIDFocusLineEdit(), i , j)
+
+		self.scroll.setWidget(self.scroll_contents)
+		self.scroll_contents.setLayout(self.pid_input_layout)
+		
+		self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+		# self.scroll.setFixedHeight(400)
+		# temp_layout[0].addWidget(self.tempT.getFocusLineEdit())
+		# temp_layout[1].addWidget(self.timeT.getFocusLineEdit())
+		# temp_layout[2].addWidget(self.finalT.getFocusLineEdit())
+
+	def pidLabels(self, label):
+		self.label = QLabel(label)
+		self.label.setStyleSheet('color: white; background-color: blue; font: 14pt; \
+								  margin 1px; border: 2px solid rgb(0, 122, 122); \
+								  border-radius: 5px; text-align: center; ')
+		self.label.setAlignment(Qt.AlignCenter)
+
+		if label == "Temperature(K)":
+			self.label.setFixedSize(250, 80)
+		else:
+			self.label.setFixedSize(150, 80)
+		return self.label
+
+	def optionButtons(self):
+		# self.createThreading()
+
+		self.option_button = hoverPushButton("Back")
+		self.options_layout.addWidget(self.option_button.getHoverButton())
+		# self.option_button.getHoverButton().clicked.connect(self.pauseThread)
+
+		self.option_button.getHoverButton().clicked.connect(self.control_clicked.emit)
+		self.option_button.getHoverButton().clicked.connect(self.resumeControlDisplay)
+
+	def refreshPIDTable(self):
+		# self.sweep_table = self.parent.tc.get_sweep_table(self.parent.control_display.primary_device)
+		# for item in self.sweep_table:
+		# 	self.sweep_values.getFocusLineEdit().setText(str(item
+		pass
+	def set_pid_table(self, value, device):
+		self.parent.write.set_pid_table(value, device)
 
 	def resumeControlDisplay(self):
 		self.parent.control_display.startThread()
@@ -1392,4 +1580,3 @@ if __name__ == "__main__":
     window.show()
 
     sys.exit(app.exec_())
-
