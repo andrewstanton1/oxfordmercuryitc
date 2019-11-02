@@ -14,7 +14,7 @@ DEVICES = {
 SENSORS = {}
 SENSORS["MB1"] = ["VTI_Hx_MB1.T", "primary"]
 SENSORS["DB6"] = ["VTI_SR_DB6.T", "secondary"]
-SENSORS["DB4"] = ["DB4.G1.%", "primary"]
+SENSORS["DB4"] = ["DB4.G1.%", "secondary"]
 SENSORS["MB0"] = ["Hx_htr_MB0.V", "primary"]
 SENSORS["DB1"] = ["SR_htr_DB1.V", "secondary"]
 

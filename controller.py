@@ -491,46 +491,49 @@ class panelThread(QObject):
 	def monitorValues(self):
 		time.sleep(1)
 		secondary_refresh = 0
-		meter_refresh = 0
 		gas_set = 0
+		for device in self.measure:
+			if self.measure[device] == "VOLT":
+				self.tc.get_max_voltage(device)
+				self.tc.close()
+				self.tc.open()
+		max_voltages = self.tc.get_max_voltage()
+		power_ratio = 0.0
 		while self.run:
 			if self.connect:
 				for device in self.devices:
 					if self.devices[device][1] == 'primary':
-						self.signal.emit(self.tc.get_signal(device, self.measure[device]))
+						value = self.tc.get_signal(device, self.measure[device])
+						self.signal.emit(value)
 						self.tc.close()
 						self.tc.open()
-						if meter_refresh == 1 and self.devices[device][0].split('.')[1] == 'V':
-							self.signal.emit(self.tc.get_heat_power_ratio(device))
-							self.tc.close()
-							self.tc.open()
 					else:
 						if secondary_refresh == 0:
-							self.signal.emit(self.tc.get_signal(device, self.measure[device]))
+							value = self.tc.get_signal(device, self.measure[device])
+							self.signal.emit(value)
 							self.tc.close()
 							self.tc.open()
-						elif meter_refresh == 1 and self.devices[device][0].split('.')[1] == 'V':
-							self.signal.emit(self.tc.get_heat_power_ratio(device))
-							self.tc.close()
-							self.tc.open()
+					if self.measure[value[0]] == "VOLT" and value[1] != "INVALID":
+						try:
+							power_ratio = 100 * (float(value[1][:-1]) / float(max_voltages[device])) ** 2
+						except:
+							pass
+						self.signal.emit([value[0], power_ratio])
 			else:
 				for device in self.devices:
 					self.signal.emit([device, "N/A"])
 					self.signal.emit([device, 0.0])
 				break
 			if self.devices["DB4"][1] == "primary":
-				self.gas_set +=1 
-				if self.gas_set == 10:
+				gas_set +=1 
+				if gas_set == 10:
 					self.devices["DB4"][1] = "secondary"
-					self.gas_set = 0
+					gas_set = 0
 
 			secondary_refresh += 1
-			meter_refresh += 1
 
 			if secondary_refresh > 3:
 				secondary_refresh = 0
-			if meter_refresh > 3:
-				meter_refresh = 0
 
 			time.sleep(1)
 		self.ended.emit()
@@ -565,11 +568,10 @@ class heaterThread(QObject):
 	def monitorValues(self):
 		if self.connect and self.devices:
 			for device in self.devices:
-				self.volt_value.emit(self.tc.get_max_voltage(device))
+				self.volt_value.emit([device, self.tc.get_max_voltage(device)[device]])
 				self.openAndclose()
 				self.res_value.emit(self.tc.get_resistance(device))
 				self.openAndclose()
-
 
 		while self.run:
 			if self.connect:
@@ -583,7 +585,7 @@ class heaterThread(QObject):
 					self.signal.emit([device, 0.0])
 				break
 			if self.run:
-				time.sleep(1)
+				time.sleep(2)
 		self.ended.emit()
 
 	def openAndclose(self):
@@ -642,14 +644,12 @@ class controlThread(QObject):
 			for i in range(5):
 				try:
 					self.temp = getMethod(self.device)
-					# if self.temp[0] == "Set Point":
-					# 	float(self.temp[1][:-1])
-					# else:
-					# 	float(self.temp[1])
+					if self.temp == "INVALID":
+						raise Exception
 					self.value.emit(self.temp)
 					break
 				except:
-					self.openAndclose()
+					pass
 			self.openAndclose()
 
 	def openAndclose(self):
@@ -695,7 +695,7 @@ class writerThread(QObject):
 			self.write.emit("set point must be 0-2000")
 		else:
 			if self.connect and device:
-				self.tryWrite(self.tc.setSetPoint, device, "set point", value)
+				self.tryWrite(self.tc.set_setpoint, device, "set point", value)
 			else:
 				self.write.emit("ITC not connected")
 
