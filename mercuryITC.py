@@ -40,9 +40,10 @@ class TemperatureController:
     def __init__(self, resource):
         try:
             self.instrument = visa.ResourceManager().open_resource(resource)
-            # sleep to confirm connection to port 
+            # sleep to confirm connection to port
             time.sleep(1)
             self.ratio = 0.0
+            self.prev_read = {}
         except visa.errors.VisaIOError:
             pass
 
@@ -88,7 +89,6 @@ class TemperatureController:
             pass
         # self.instrument.flush()
 
-
     def read(self, value: str, prefix: str = "READ:") -> str:
         """
         Reads data from device or interface synchronously
@@ -106,8 +106,9 @@ class TemperatureController:
         try:
             self.raw_data = str(self.instrument.read_raw()).split(":")[-1][:-3]
         except TypeError:
-            return self.raw_data
+            pass
 
+        return self.raw_data
 
     def set(self, value: str) -> str:
         """
@@ -118,7 +119,7 @@ class TemperatureController:
             prefix: read command prefix
         Returns:
             data read, return value of the libary call
-        """        
+        """
         return self.read(value, "SET:")
 
     def open(self) -> None:
@@ -141,7 +142,7 @@ class TemperatureController:
         except serial.serialutil.SerialException:
             pass
 
-# getters
+    # getters
     def get_signal(self, device: str, signal: str) -> list:
         """
         Get front panel data for each device: temperature, voltage, gas flow 
@@ -153,12 +154,12 @@ class TemperatureController:
             device and data read 
         """
         try:
-            self.open()
+            value = self.read(self._signal % (DEVICES[device], signal))
+            self.prev_read[device] = value
+            return [device, value]
         except:
-            pass
-        value = self.read(self._signal % (DEVICES[device], signal))
-        return [device, value]
-
+            print("error")
+            return [device, self.prev_read[device]]
 
     def get_max_voltage(self, device: str) -> list:
         """
@@ -174,7 +175,7 @@ class TemperatureController:
         except:
             pass
         return [device, self.max_voltage]
-    
+
     def get_resistance(self, device: str) -> list:
         """
         Reads the resistance data from device 
@@ -183,10 +184,10 @@ class TemperatureController:
             device: device ID
         Returns:
             device and resistance data read 
-        """      
+        """
         self.resistance = self.read(self._resistance % (DEVICES[device],))
         return [device, self.resistance]
-    
+
     def get_heat_power_ratio(self, device: str) -> float:
         """
         Reads the current voltage and max voltage data from device to calcuate power ratio
@@ -204,7 +205,7 @@ class TemperatureController:
             self.close()
             self.open()
             max_voltage = self.get_max_voltage(device)[1]
-            self.ratio = 100.0 * (voltage / float(self.get_max_voltage(device)[1]) ** 2)
+            self.ratio = 100.0 * ((voltage / max_voltage) ** 2)
         except:
             self.ratio = self.ratio
         # Resource is closed then opened since there is a delay to query/write consecutive values
@@ -221,7 +222,7 @@ class TemperatureController:
             device and heater percentage read 
         """
         return ["Heat", self.read(self._heater % (device,))]
-    
+
     def get_flow(self, device: str) -> list:
         """
         Reads the flow percentage data from device
@@ -289,10 +290,10 @@ class TemperatureController:
         Returns:
             device and sweep table read 
         """
-        sweep_file = self.read(self._sweep % (device, ))
+        sweep_file = self.read(self._sweep % (device,))
         return sweep_file
 
-# setters
+    # setters
     def set_max_voltage(self, value: str, device: str) -> str:
         """
         Set the maximum voltage limit for the heater
@@ -302,7 +303,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set(self._voltage % (device, value))
 
     def set_resistance(self, value: str, device: str) -> str:
@@ -314,7 +315,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """          
+        """
         return self.set(self._resistance % (device, value))
 
     def set_heater(self, setting: str, device: str) -> str:
@@ -326,10 +327,10 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set((self._heater + ":%s") % (device, str(setting)))
         # return self.heater_percent
- 
+
     def set_flow(self, value: str, device: str) -> str:
         """
         Set the flow percentage (manual flow)
@@ -339,7 +340,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set(self._flow + ":" % (device, value))
 
     def set_setpoint(self, value: str, device: str) -> str:
@@ -351,7 +352,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set(self._setpoint + ":" % (device, value))
 
     # TODO: why do these all set TEMP????
@@ -364,7 +365,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set(self._p % (device, value))
 
     def set_i(self, device: str, value: str) -> str:
@@ -376,7 +377,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """  
+        """
         return self.set("%s%s" % (self._i % device, value))
 
     def set_d(self, device: str, value: str) -> str:
@@ -388,7 +389,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """   
+        """
         return self.set("%s%s" % (self._d % device, value))
 
     def set_flow_setting(self, value: str, device: str) -> str:
@@ -400,7 +401,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """   
+        """
         return self.set(self._flow_setting % (device, value))
 
     def set_setpoint_setting(self, value: str, device: str) -> str:
@@ -412,7 +413,7 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """        
+        """
         return self.set(self._setpoint_setting % (device, value))
 
     def set_pid_setting(self, value: str, device: str) -> str:
@@ -436,5 +437,5 @@ class TemperatureController:
             device: device ID
         Returns:
             device and valid or invalid write 
-        """   
+        """
         return self.set(self._sweep % (device, table))

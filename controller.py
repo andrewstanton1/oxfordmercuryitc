@@ -252,6 +252,8 @@ class sensorUIWindow(QWidget):
 
 	@pyqtSlot(list)
 	def monitorValues(self, reading):
+		if reading[1] == "INVALID":
+			print('error')
 		if reading[1] != "INVALID":
 			if isinstance(reading[1], str):
 				if reading[0] == "DB4":
@@ -519,10 +521,10 @@ class panelThread(QObject):
 					self.signal.emit([device, 0.0])
 				break
 			if self.devices["DB4"][1] == "primary":
-				self.gas_set +=1 
-				if self.gas_set == 10:
+				gas_set +=1 
+				if gas_set == 10:
 					self.devices["DB4"][1] = "secondary"
-					self.gas_set = 0
+					gas_set = 0
 
 			secondary_refresh += 1
 			meter_refresh += 1
